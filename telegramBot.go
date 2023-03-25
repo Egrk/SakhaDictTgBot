@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -142,12 +143,12 @@ func iterateAndSend(wordStructList []word, id int64, bot *tgbotapi.BotAPI) {
 }
 
 func main() {
-	config, err := loadConfig(".")
-	if err != nil {
-		log.Fatal("Cannot load config:", err)
+	// config, err := loadConfig(".")
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		log.Fatal("API_KEY must be set")
 	}
-
-	bot, err := tgbotapi.NewBotAPI(config.ApiKey)
+	bot, err := tgbotapi.NewBotAPI(apiKey)
 	if err != nil {
 		log.Panic(err)
 	}
