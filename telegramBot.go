@@ -145,9 +145,12 @@ func iterateAndSend(wordStructList []word, id int64, bot *tgbotapi.BotAPI) {
 func main() {
 	// config, err := loadConfig(".")
 	apiKey := os.Getenv("API_KEY")
+	port := os.Getenv("PORT")
+	host := os.Getenv("HOST")
 	if apiKey == "" {
 		log.Fatal("API_KEY must be set")
 	}
+	
 	bot, err := tgbotapi.NewBotAPI(apiKey)
 	if err != nil {
 		log.Panic(err)
@@ -155,9 +158,20 @@ func main() {
 
 	bot.Debug = true
 	log.Printf("Authorized on account %s", bot.Self.UserName)
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := bot.GetUpdatesChan(u)
+	addr := "0.0.0.0:" + port
+	go http.ListenAndServe(addr, nil)
+	
+	webhook, err := tgbotapi.NewWebhook(host + bot.Token)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = bot.Request(webhook)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	updates := bot.ListenForWebhook("/" + bot.Token)
 	urlAddress, _ := url.Parse(dictURL)
 	for update := range updates {
 		if update.Message == nil {
@@ -188,7 +202,6 @@ func main() {
 			log.Fatal("error happened ", err)
 		}
 		resp.Body.Close()
-		log.Println(len(body))
 		data := parse(string(body[11477:]))
 		if len(data) == 0 {
 			sendMessage("Слово не найдено", update.Message.Chat.ID, bot)
