@@ -160,6 +160,7 @@ func main() {
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 	addr := "0.0.0.0:" + port
 	go http.ListenAndServe(addr, nil)
+	log.Println("Listenning on port: " + port)
 	
 	webhook, err := tgbotapi.NewWebhook(host + bot.Token)
 	if err != nil {
@@ -173,6 +174,7 @@ func main() {
 
 	updates := bot.ListenForWebhook("/" + bot.Token)
 	urlAddress, _ := url.Parse(dictURL)
+	log.Println("Configs setted, starting listening")
 	for update := range updates {
 		if update.Message == nil {
 			continue
