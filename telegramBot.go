@@ -65,9 +65,7 @@ func sentenceParser(pack pack, callback chan int) {
 		}
 		indx++
 	}
-	if len(ans) == 0 {
-		sendMessage("Слово не найдено", pack.id, pack.bot)
-	} else {
+	if len(ans) != 0 {
 		pack.wordExplain.texts = ans
 		iterateAndSend(pack)
 	}
