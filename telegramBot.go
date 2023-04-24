@@ -207,9 +207,6 @@ func main() {
 		query := urlAddress.Query()
 		query.Set("data1", searchWord)
 		urlAddress.RawQuery = query.Encode()
-		for i := 0; i < 3; i++ {
-			_, _ = http.Get(fmt.Sprint(urlAddress, searchWord))
-		}
 		resp, err := http.Get(fmt.Sprint(urlAddress, searchWord))
 		if err != nil {
 			log.Fatal("error happened ", err)
