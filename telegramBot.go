@@ -23,13 +23,20 @@ const (
 	defaultMessage = "Такой команды не знаю :("
 )
 
+type pack struct {
+	wordExplain word
+	id int64
+	bot *tgbotapi.BotAPI
+}
+
 type word struct {
 	head  string
 	texts []string
+	rawData string
 }
 
-func sentenceParser(rawData string) []string {
-	runeList := []rune(rawData)
+func sentenceParser(pack pack, callback chan int) {
+	runeList := []rune(pack.wordExplain.rawData)
 	var lastSentence []string
 	check := false
 	lenOfList := len(runeList)
@@ -58,10 +65,16 @@ func sentenceParser(rawData string) []string {
 		}
 		indx++
 	}
-	return ans
+	if len(ans) == 0 {
+		sendMessage("Слово не найдено", pack.id, pack.bot)
+	} else {
+		pack.wordExplain.texts = ans
+		iterateAndSend(pack)
+	}
+	callback <- 1
 }
 
-func parse(text string) (data []word) {
+func parse(text string, pack pack, downstream chan pack) (data []word) {
 	tkn := html.NewTokenizer(strings.NewReader(text))
 	wordStruct := word{}
 	var vals []string
@@ -91,11 +104,13 @@ func parse(text string) (data []word) {
 				}
 			}
 			wordStruct.head = vals[0]
-			rawData := strings.Join(vals[1:], "")
-			wordStruct.texts = sentenceParser(rawData)
-			if len(wordStruct.texts) != 0 {
-				listOfWordStruct = append(listOfWordStruct, wordStruct)
-			}
+			wordStruct.rawData = strings.Join(vals[1:], "")
+			pack.wordExplain = wordStruct
+			downstream <- pack
+			// wordStruct.texts = sentenceParser(rawData)
+			// if len(wordStruct.texts) != 0 {
+			// 	listOfWordStruct = append(listOfWordStruct, wordStruct)
+			// }
 		}
 		vals = nil
 	}
@@ -125,20 +140,18 @@ func sendMessage(text string, id int64, bot *tgbotapi.BotAPI) {
 	}
 }
 
-func iterateAndSend(wordStructList []word, id int64, bot *tgbotapi.BotAPI) {
-	for _, m := range wordStructList {
-		text := m.head + "\n"
-		for _, wordBody := range m.texts {
-			if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
-				text += wordBody + "\n"
-			} else {
-				sendMessage(text, id, bot)
-				text = ""
-			}
+func iterateAndSend(pack pack) {
+	text := pack.wordExplain.head + "\n"
+	for _, wordBody := range pack.wordExplain.texts {
+		if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
+			text += wordBody + "\n"
+		} else {
+			sendMessage(text, pack.id, pack.bot)
+			text = ""
 		}
-		if text != "" {
-			sendMessage(text, id, bot)
-		}
+	}
+	if text != "" {
+		sendMessage(text, pack.id, pack.bot)
 	}
 }
 
@@ -147,8 +160,9 @@ func main() {
 	apiKey := os.Getenv("API_KEY")
 	port := os.Getenv("PORT")
 	host := os.Getenv("HOST")
-	if apiKey == "" {
-		log.Fatal("API_KEY must be set")
+	if apiKey == "" || port == "" || host == "" {
+		log.Fatal("API_KEY, PORT and HOST must be set")
+		return
 	}
 	
 	bot, err := tgbotapi.NewBotAPI(apiKey)
@@ -156,7 +170,6 @@ func main() {
 		log.Panic(err)
 	}
 
-	bot.Debug = true
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 	addr := "0.0.0.0:" + port
 	go http.ListenAndServe(addr, nil)
@@ -175,6 +188,8 @@ func main() {
 	updates := bot.ListenForWebhook("/" + bot.Token)
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
+	downstream := make(chan pack)
+	go balancer(downstream)
 	for update := range updates {
 		if update.Message == nil {
 			continue
@@ -194,6 +209,9 @@ func main() {
 		query := urlAddress.Query()
 		query.Set("data1", searchWord)
 		urlAddress.RawQuery = query.Encode()
+		for i := 0; i < 3; i++ {
+			_, _ = http.Get(fmt.Sprint(urlAddress, searchWord))
+		}
 		resp, err := http.Get(fmt.Sprint(urlAddress, searchWord))
 		if err != nil {
 			log.Fatal("error happened ", err)
@@ -204,11 +222,16 @@ func main() {
 			log.Fatal("error happened ", err)
 		}
 		resp.Body.Close()
-		data := parse(string(body[11477:]))
-		if len(data) == 0 {
+		pack := pack{
+			id: update.Message.Chat.ID,
+			bot: bot,
+		}
+		if len(body) < 14000 {
 			sendMessage("Слово не найдено", update.Message.Chat.ID, bot)
 			continue
 		}
-		iterateAndSend(data, update.Message.Chat.ID, bot)
+		parse(string(body[11477:]), pack, downstream)
+		
+		// iterateAndSend(data, update.Message.Chat.ID, bot)
 	}
 }
