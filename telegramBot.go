@@ -219,8 +219,6 @@ func main() {
 		fullTextMdFile := false
 		if update.Message.IsCommand() {
 			switch update.Message.Command() {
-			case "t":
-				fullTextMdFile = true
 			case "help":
 				sendMessage(helpMessage, update.Message.Chat.ID, bot)
 				continue
@@ -233,6 +231,10 @@ func main() {
 			}
 		}
 		searchWord := update.Message.Text
+		if searchWord[0] == '+' {
+			fullTextMdFile = true
+			searchWord = strings.TrimSpace(searchWord[1:])
+		}
 		query := urlAddress.Query()
 		query.Set("data1", searchWord)
 		urlAddress.RawQuery = query.Encode()
