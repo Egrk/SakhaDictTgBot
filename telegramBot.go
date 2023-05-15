@@ -21,6 +21,8 @@ const (
 	helpMessage    = "Всё просто: отправляешь мне слово на якутском языке, я выдаю его значение"
 	startMessage   = "Вас приветствует бот Большого толкового словаря якусткого языка. Данные берутся из его электронной версии по ссылке: https://igi.ysn.ru/btsja/index.php. Бот некоммерческий и создан только для удобного взаимодействия со словарем"
 	defaultMessage = "Такой команды не знаю :("
+	htmlStartElement = "<div class = 'text'>"
+	htmlEndElement = "</div>"
 )
 
 type pack struct {
@@ -72,7 +74,7 @@ func sentenceParser(pack pack, callback chan int) {
 	callback <- 1
 }
 
-func parse(text string, pack pack, downstream chan pack) (data []word) {
+func parseHtmlBody(text string, pack pack, downstream chan pack) (data []word) {
 	tkn := html.NewTokenizer(strings.NewReader(text))
 	wordStruct := word{}
 	var vals []string
@@ -87,17 +89,27 @@ func parse(text string, pack pack, downstream chan pack) (data []word) {
 		}
 		t := tkn.Token()
 		if t.Data == "div" && t.Attr[0].Key == "class" && t.Attr[0].Val == "text" {
+			Loop:
 			for {
-				tt = tkn.Next()
-				if tt == html.TextToken {
+				switch tkn.Next() {
+				case html.TextToken: 
 					t := tkn.Token()
 					if strings.TrimSpace(t.Data) != "" {
 						vals = append(vals, t.Data)
 					}
-				} else if tt == html.EndTagToken {
+				// case html.StartTagToken:
+				// 	if t := tkn.Token(); t.Data == "br" && isFullText {
+				// 		if isPreviousBr {
+				// 			vals = append(vals, "\n")
+				// 			isPreviousBr = false
+				// 		} else {
+				// 			isPreviousBr = true
+				// 		}
+				// 	}
+				case html.EndTagToken:
 					t := tkn.Token()
 					if t.Data == "div" {
-						break
+						break Loop
 					}
 				}
 			}
@@ -105,10 +117,6 @@ func parse(text string, pack pack, downstream chan pack) (data []word) {
 			wordStruct.rawData = strings.Join(vals[1:], "")
 			pack.wordExplain = wordStruct
 			downstream <- pack
-			// wordStruct.texts = sentenceParser(rawData)
-			// if len(wordStruct.texts) != 0 {
-			// 	listOfWordStruct = append(listOfWordStruct, wordStruct)
-			// }
 		}
 		vals = nil
 	}
@@ -153,6 +161,22 @@ func iterateAndSend(pack pack) {
 	}
 }
 
+func sendHtmlChunkWithText(body string, searchWord string, id int64, bot *tgbotapi.BotAPI) {
+	startIndex := strings.Index(body, htmlStartElement)
+	endIndex := strings.LastIndex(body, htmlEndElement)
+	if startIndex == -1 || endIndex == -1 {
+		sendMessage("Слово не найдено", id, bot)
+		return
+	}
+	bodyChunk := body[startIndex:endIndex]
+	file := tgbotapi.FileReader{
+		Name: searchWord + ".html",
+		Reader: strings.NewReader(bodyChunk),
+	}
+	msg := tgbotapi.NewDocument(id, file)
+	bot.Send(msg)
+}
+
 func main() {
 	// config, err := loadConfig(".")
 	apiKey := os.Getenv("API_KEY")
@@ -192,16 +216,21 @@ func main() {
 		if update.Message == nil {
 			continue
 		}
+		fullTextMdFile := false
 		if update.Message.IsCommand() {
 			switch update.Message.Command() {
+			case "t":
+				fullTextMdFile = true
 			case "help":
 				sendMessage(helpMessage, update.Message.Chat.ID, bot)
+				continue
 			case "start":
 				sendMessage(startMessage, update.Message.Chat.ID, bot)
+				continue
 			default:
 				sendMessage(defaultMessage, update.Message.Chat.ID, bot)
+				continue
 			}
-			continue
 		}
 		searchWord := update.Message.Text
 		query := urlAddress.Query()
@@ -225,8 +254,11 @@ func main() {
 			sendMessage("Слово не найдено", update.Message.Chat.ID, bot)
 			continue
 		}
-		parse(string(body[11477:]), pack, downstream)
-		
-		// iterateAndSend(data, update.Message.Chat.ID, bot)
+		stringBodyChunk := string(body[11477:])
+		if fullTextMdFile {
+			sendHtmlChunkWithText(stringBodyChunk, searchWord, update.Message.Chat.ID, bot)
+		} else {
+			parseHtmlBody(stringBodyChunk, pack, downstream)
+		}
 	}
 }
