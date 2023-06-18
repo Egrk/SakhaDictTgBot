@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +23,7 @@ const (
 	helpMessage    = "Всё просто: отправляешь мне слово на якутском языке, я выдаю его значение. Знаком '+' в начале можно получить html-файл с полным пояснение слова с примерами. Пример запроса: '+Саха'"
 	startMessage   = "Вас приветствует бот Большого толкового словаря якутского языка. Данные берутся из его электронной версии по ссылке: https://igi.ysn.ru/btsja/index.php. Бот некоммерческий и создан только для удобного взаимодействия со словарем. Небольшая инструкция: /help"
 	defaultMessage = "Такой команды не знаю :("
+	serverErrorMessage = "Ошибка сервера, попробуйте попытку позже"
 	htmlStartElement = "<div class = 'text'>"
 	htmlEndElement = "</div>"
 )
@@ -74,8 +77,8 @@ func sentenceParser(pack pack, callback chan int) {
 	callback <- 1
 }
 
-func parseHtmlBody(text string, pack pack, downstream chan pack) (data []word) {
-	tkn := html.NewTokenizer(strings.NewReader(text))
+func parseHtmlBody(text []byte, pack pack, downstream chan pack) (data []word) {
+	tkn := html.NewTokenizer(bytes.NewReader(text))
 	wordStruct := word{}
 	var vals []string
 	var listOfWordStruct []word
@@ -161,9 +164,9 @@ func iterateAndSend(pack pack) {
 	}
 }
 
-func sendHtmlChunkWithText(body string, searchWord string, id int64, bot *tgbotapi.BotAPI) {
-	startIndex := strings.Index(body, htmlStartElement)
-	endIndex := strings.LastIndex(body, htmlEndElement)
+func sendHtmlChunkWithText(body []byte, searchWord string, id int64, bot *tgbotapi.BotAPI) {
+	startIndex := bytes.Index(body, []byte(htmlStartElement))
+	endIndex := bytes.LastIndex(body, []byte(htmlEndElement))
 	if startIndex == -1 || endIndex == -1 {
 		sendMessage("Слово не найдено", id, bot)
 		return
@@ -171,43 +174,60 @@ func sendHtmlChunkWithText(body string, searchWord string, id int64, bot *tgbota
 	bodyChunk := body[startIndex:endIndex]
 	file := tgbotapi.FileReader{
 		Name: searchWord + ".html",
-		Reader: strings.NewReader(bodyChunk),
+		Reader: bytes.NewReader(bodyChunk),
 	}
 	msg := tgbotapi.NewDocument(id, file)
 	bot.Send(msg)
 }
 
 func main() {
-	// config, err := loadConfig(".")
-	apiKey := os.Getenv("API_KEY")
-	port := os.Getenv("PORT")
-	host := os.Getenv("HOST")
-	if apiKey == "" || port == "" || host == "" {
-		log.Fatal("API_KEY, PORT and HOST must be set")
-		return
-	}
-	
-	bot, err := tgbotapi.NewBotAPI(apiKey)
-	if err != nil {
-		log.Panic(err)
+	localMode := flag.Bool("dev", false, "run in local machine")
+	flag.Parse()
+	var updates tgbotapi.UpdatesChannel
+	var bot *tgbotapi.BotAPI
+	if *localMode {
+		config, _ := loadConfig(".")
+		var err error
+		bot, err = tgbotapi.NewBotAPI(config.ApiKey)
+		if err != nil {
+			log.Panic(err)
+		}
+		log.Printf("Authorized on account %s", bot.Self.UserName)
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
+		updates = bot.GetUpdatesChan(u)
+	} else {
+		apiKey := os.Getenv("API_KEY")
+		port := os.Getenv("PORT")
+		host := os.Getenv("HOST")
+		if apiKey == "" || port == "" || host == "" {
+			log.Fatal("API_KEY, PORT and HOST must be set")
+			return
+		}
+
+		var err error
+		bot, err = tgbotapi.NewBotAPI(apiKey)
+		if err != nil {
+			log.Panic(err)
+		}
+		log.Printf("Authorized on account %s", bot.Self.UserName)
+
+		addr := "0.0.0.0:" + port
+		go http.ListenAndServe(addr, nil)
+		log.Println("Listenning on port: " + port)
+		
+		webhook, err := tgbotapi.NewWebhook(host + bot.Token)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = bot.Request(webhook)
+		if err != nil {
+			log.Fatal(err)
+		}
+		updates = bot.ListenForWebhook("/" + bot.Token)
 	}
 
-	log.Printf("Authorized on account %s", bot.Self.UserName)
-	addr := "0.0.0.0:" + port
-	go http.ListenAndServe(addr, nil)
-	log.Println("Listenning on port: " + port)
-	
-	webhook, err := tgbotapi.NewWebhook(host + bot.Token)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = bot.Request(webhook)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	updates := bot.ListenForWebhook("/" + bot.Token)
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
 	downstream := make(chan pack)
@@ -243,6 +263,11 @@ func main() {
 			log.Fatal("error happened ", err)
 			continue
 		}
+		if resp.StatusCode != 200 {
+			log.Println("Server error, status code: ", resp.StatusCode)
+			sendMessage(serverErrorMessage, update.Message.Chat.ID, bot)
+			continue
+		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			log.Fatal("error happened ", err)
@@ -256,11 +281,10 @@ func main() {
 			sendMessage("Слово не найдено", update.Message.Chat.ID, bot)
 			continue
 		}
-		stringBodyChunk := string(body[11477:])
 		if fullTextMdFile {
-			sendHtmlChunkWithText(stringBodyChunk, searchWord, update.Message.Chat.ID, bot)
+			sendHtmlChunkWithText(body[11477:], searchWord, update.Message.Chat.ID, bot)
 		} else {
-			parseHtmlBody(stringBodyChunk, pack, downstream)
+			parseHtmlBody(body[11477:], pack, downstream)
 		}
 	}
 }
