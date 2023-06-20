@@ -30,8 +30,9 @@ const (
 
 type pack struct {
 	wordExplain word
-	id int64
+	messageId int64
 	bot *tgbotapi.BotAPI
+	number int
 }
 
 type word struct {
@@ -40,7 +41,7 @@ type word struct {
 	rawData string
 }
 
-func sentenceParser(pack pack, callback chan int) {
+func sentenceParser(pack pack, callback chan pack) {
 	runeList := []rune(pack.wordExplain.rawData)
 	var lastSentence []string
 	check := false
@@ -72,20 +73,21 @@ func sentenceParser(pack pack, callback chan int) {
 	}
 	if len(ans) != 0 {
 		pack.wordExplain.texts = ans
-		iterateAndSend(pack)
+		// iterateAndSend(pack)
 	}
-	callback <- 1
+	callback <- pack
 }
 
-func parseHtmlBody(text []byte, pack pack, downstream chan pack) (data []word) {
+func parseHtmlBody(text []byte, packet pack) {
 	tkn := html.NewTokenizer(bytes.NewReader(text))
 	wordStruct := word{}
 	var vals []string
-	var listOfWordStruct []word
+	callback := make(chan pack)
+	num := 0
 	for {
 		tt := tkn.Next()
 		if tt == html.ErrorToken {
-			return listOfWordStruct
+			break
 		}
 		if tt != html.StartTagToken {
 			continue
@@ -118,10 +120,27 @@ func parseHtmlBody(text []byte, pack pack, downstream chan pack) (data []word) {
 			}
 			wordStruct.head = vals[0]
 			wordStruct.rawData = strings.Join(vals[1:], "")
-			pack.wordExplain = wordStruct
-			downstream <- pack
+			packet.wordExplain = wordStruct
+			packet.number = num
+			num++
+			go sentenceParser(packet, callback)
 		}
 		vals = nil
+	}
+	packArray := make([]pack, num)
+	for i := 0; i < num; i++ {
+		if packArray[i].messageId != 0 {
+			iterateAndSend(packArray[i])
+			continue
+		}
+		for {
+			handledPack := <- callback
+			if handledPack.number == i {
+				iterateAndSend(handledPack)
+				break
+			}
+			packArray[handledPack.number] = handledPack
+		}
 	}
 }
 
@@ -155,12 +174,12 @@ func iterateAndSend(pack pack) {
 		if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
 			text += wordBody + "\n"
 		} else {
-			sendMessage(text, pack.id, pack.bot)
+			sendMessage(text, pack.messageId, pack.bot)
 			text = ""
 		}
 	}
 	if text != "" {
-		sendMessage(text, pack.id, pack.bot)
+		sendMessage(text, pack.messageId, pack.bot)
 	}
 }
 
@@ -230,14 +249,13 @@ func main() {
 
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
-	downstream := make(chan pack)
-	go balancer(downstream)
 	for update := range updates {
 		if update.Message == nil {
 			continue
 		}
 		fullTextMdFile := false
 		if update.Message.IsCommand() {
+			log.Println("Got command: ", update.Message.Command())
 			switch update.Message.Command() {
 			case "help":
 				sendMessage(helpMessage, update.Message.Chat.ID, bot)
@@ -251,6 +269,7 @@ func main() {
 			}
 		}
 		searchWord := update.Message.Text
+		log.Println("Searching for word: ", searchWord)
 		if searchWord[0] == '+' {
 			fullTextMdFile = true
 			searchWord = strings.TrimSpace(searchWord[1:])
@@ -274,7 +293,7 @@ func main() {
 		}
 		resp.Body.Close()
 		pack := pack{
-			id: update.Message.Chat.ID,
+			messageId: update.Message.Chat.ID,
 			bot: bot,
 		}
 		if len(body) < 14000 {
@@ -284,7 +303,7 @@ func main() {
 		if fullTextMdFile {
 			sendHtmlChunkWithText(body[11477:], searchWord, update.Message.Chat.ID, bot)
 		} else {
-			parseHtmlBody(body[11477:], pack, downstream)
+			go parseHtmlBody(body[11477:], pack)
 		}
 	}
 }
