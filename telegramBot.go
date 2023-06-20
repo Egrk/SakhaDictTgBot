@@ -254,8 +254,9 @@ func main() {
 			continue
 		}
 		fullTextMdFile := false
+		log.Println("User: ", update.Message.Chat.FirstName, update.Message.Chat.LastName, "UserName: ", update.Message.Chat.UserName)
 		if update.Message.IsCommand() {
-			log.Println("Got command: ", update.Message.Command())
+			log.Println("Send command: ", update.Message.Command())
 			switch update.Message.Command() {
 			case "help":
 				sendMessage(helpMessage, update.Message.Chat.ID, bot)
