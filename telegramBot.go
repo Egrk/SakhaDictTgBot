@@ -169,17 +169,19 @@ func sendMessage(text string, id int64, bot *tgbotapi.BotAPI) {
 }
 
 func iterateAndSend(pack pack) {
-	text := pack.wordExplain.head + "\n"
-	for _, wordBody := range pack.wordExplain.texts {
-		if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
-			text += wordBody + "\n"
-		} else {
-			sendMessage(text, pack.messageId, pack.bot)
-			text = ""
+	if len(pack.wordExplain.texts) > 0 {
+		text := pack.wordExplain.head + "\n"
+		for _, wordBody := range pack.wordExplain.texts {
+			if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
+				text += wordBody + "\n"
+			} else {
+				sendMessage(text, pack.messageId, pack.bot)
+				text = ""
+			}
 		}
-	}
-	if text != "" {
-		sendMessage(text, pack.messageId, pack.bot)
+		if text != "" {
+			sendMessage(text, pack.messageId, pack.bot)
+		}
 	}
 }
 
