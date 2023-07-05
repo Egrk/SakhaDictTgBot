@@ -2,6 +2,8 @@ package main
 
 import "github.com/spf13/viper"
 
+// This config used only for local run
+
 type Config struct {
 	ApiKey string `mapstructure:"API_KEY"`
 }
