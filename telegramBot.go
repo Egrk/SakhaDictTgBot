@@ -22,11 +22,12 @@ const (
 	htmlEndElement = "</div>"
 )
 
+var bot *tgbotapi.BotAPI
+
 func main() {
 	localMode := flag.Bool("dev", false, "run in local machine")
 	flag.Parse()
 	var updates tgbotapi.UpdatesChannel
-	var bot *tgbotapi.BotAPI
 	if *localMode {
 		config, _ := loadConfig(".")
 		var err error
@@ -72,6 +73,8 @@ func main() {
 
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
+	var downstream = make(chan searchSettings, 20)
+	go balancer(downstream)
 	for update := range updates {
 		if update.Message == nil {
 			continue
@@ -82,13 +85,13 @@ func main() {
 			log.Println("Send command: ", update.Message.Command())
 			switch update.Message.Command() {
 			case "help":
-				sendMessage(helpMessage, update.Message.Chat.ID, bot)
+				sendMessage(helpMessage, update.Message.Chat.ID)
 				continue
 			case "start":
-				sendMessage(startMessage, update.Message.Chat.ID, bot)
+				sendMessage(startMessage, update.Message.Chat.ID)
 				continue
 			default:
-				sendMessage(defaultMessage, update.Message.Chat.ID, bot)
+				sendMessage(defaultMessage, update.Message.Chat.ID)
 				continue
 			}
 		}
@@ -108,7 +111,7 @@ func main() {
 		}
 		if resp.StatusCode != 200 {
 			log.Println("Server error, status code: ", resp.StatusCode)
-			sendMessage(serverErrorMessage, update.Message.Chat.ID, bot)
+			sendMessage(serverErrorMessage, update.Message.Chat.ID)
 			continue
 		}
 		body, err := io.ReadAll(resp.Body)
@@ -116,18 +119,18 @@ func main() {
 			log.Fatal("error happened ", err)
 		}
 		resp.Body.Close()
-		pack := pack{
-			messageId: update.Message.Chat.ID,
-			bot: bot,
-		}
 		if len(body) < 14000 {
-			sendMessage("Слово не найдено", update.Message.Chat.ID, bot)
+			sendMessage("Слово не найдено", update.Message.Chat.ID)
 			continue
 		}
 		if fullTextMdFile {
-			sendHtmlChunkWithText(body[11477:], searchWord, update.Message.Chat.ID, bot)
+			sendHtmlChunkWithText(body[11477:], searchWord, update.Message.Chat.ID)
 		} else {
-			go parseHtmlBody(body[11477:], pack)
+			searchSettings := searchSettings{
+				raw: body[11477:],
+				chatID: update.Message.Chat.ID,
+			}
+			downstream <- searchSettings
 		}
 	}
 }
