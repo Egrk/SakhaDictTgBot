@@ -18,8 +18,7 @@ var queue = list.New()
 
 type pack struct {
 	wordExplain word
-	messageId int64
-	bot *tgbotapi.BotAPI
+	chatID int64
 	number int
 }
 
@@ -27,6 +26,11 @@ type word struct {
 	head  string
 	texts []string
 	rawData string
+}
+
+type searchSettings struct {
+	raw []byte
+	chatID int64
 }
 
 func sentenceParser(pack pack, callback chan pack) {
@@ -65,12 +69,18 @@ func sentenceParser(pack pack, callback chan pack) {
 	callback <- pack
 }
 
-func parseHtmlBody(text []byte, packet pack) {
+func parseHtmlBody(text []byte, chatID int64, done <-chan struct{}) {
+	defer func ()  {
+		<-done
+	}()
 	tkn := html.NewTokenizer(bytes.NewReader(text))
 	wordStruct := word{}
 	var vals []string
 	callback := make(chan pack)
 	num := 0
+	packet := pack{
+		chatID: chatID,
+	}
 	for {
 		tt := tkn.Next()
 		if tt == html.ErrorToken {
@@ -89,15 +99,6 @@ func parseHtmlBody(text []byte, packet pack) {
 					if strings.TrimSpace(t.Data) != "" {
 						vals = append(vals, t.Data)
 					}
-				// case html.StartTagToken:
-				// 	if t := tkn.Token(); t.Data == "br" && isFullText {
-				// 		if isPreviousBr {
-				// 			vals = append(vals, "\n")
-				// 			isPreviousBr = false
-				// 		} else {
-				// 			isPreviousBr = true
-				// 		}
-				// 	}
 				case html.EndTagToken:
 					t := tkn.Token()
 					if t.Data == "div" {
@@ -116,7 +117,7 @@ func parseHtmlBody(text []byte, packet pack) {
 	}
 	packArray := make([]pack, num)
 	for i := 0; i < num; i++ {
-		if packArray[i].messageId != 0 {
+		if packArray[i].chatID != 0 {
 			iterateAndSend(packArray[i])
 			continue
 		}
@@ -148,7 +149,7 @@ func firstSentenceParse(text []rune) (int, string) {
 	return idx, strings.Join(ans, "")
 }
 
-func sendMessage(text string, id int64, bot *tgbotapi.BotAPI) {
+func sendMessage(text string, id int64) {
 	msg := tgbotapi.NewMessage(id, text)
 	if _, err := bot.Send(msg); err != nil {
 		log.Fatal("error happened", err)
@@ -162,21 +163,21 @@ func iterateAndSend(pack pack) {
 			if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 {
 				text += wordBody + "\n"
 			} else {
-				sendMessage(text, pack.messageId, pack.bot)
+				sendMessage(text, pack.chatID)
 				text = ""
 			}
 		}
 		if text != "" {
-			sendMessage(text, pack.messageId, pack.bot)
+			sendMessage(text, pack.chatID)
 		}
 	}
 }
 
-func sendHtmlChunkWithText(body []byte, searchWord string, id int64, bot *tgbotapi.BotAPI) {
+func sendHtmlChunkWithText(body []byte, searchWord string, id int64) {
 	startIndex := bytes.Index(body, []byte(htmlStartElement))
 	endIndex := bytes.LastIndex(body, []byte(htmlEndElement))
 	if startIndex == -1 || endIndex == -1 {
-		sendMessage("Слово не найдено", id, bot)
+		sendMessage("Слово не найдено", id)
 		return
 	}
 	bodyChunk := body[startIndex:endIndex]
@@ -188,29 +189,10 @@ func sendHtmlChunkWithText(body []byte, searchWord string, id int64, bot *tgbota
 	bot.Send(msg)
 }
 
-func balancer(upstream chan pack) {
-		for {
-			select {
-			case newPack := <- upstream:
-				if counter < 5 {
-					go sentenceParser(newPack, callback)
-					counter++
-				} else {
-					queue.PushBack(newPack)
-				}
-			// case back := <- callback:
-			// 	counter -= back
-			// 	if queue.Len() != 0 {
-			// 		for counter < 5 {
-			// 			frontElement := queue.Front()
-			// 			if frontElement == nil {
-			// 				break
-			// 			}
-			// 			go sentenceParser(frontElement.Value.(pack), callback)
-			// 			counter++
-			// 			queue.Remove(frontElement)
-			// 		}
-			// 	}
-		}
+func balancer(upstream <-chan searchSettings) {
+	var semafore = make(chan struct{}, 15)
+	for elem := range upstream {
+		semafore <-struct{}{}
+		go parseHtmlBody(elem.raw, elem.chatID, semafore)
 	}
 }
