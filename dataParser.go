@@ -11,10 +11,6 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// var counter = 0
-// var callback = make(chan pack)
-// var queue = list.New()
-
 type pack struct {
 	wordExplain word
 	chatID int64
