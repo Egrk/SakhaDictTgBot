@@ -1,6 +1,6 @@
 # Sakha Dictionary Telegram Bot
 
-Sakha Dictionary Telegram Bot is a bot which give a brief explanation of Sakha language word. Bot take only word, not sentence
+Sakha Dictionary Telegram Bot is a bot which give a brief explanation of Sakha language word. Bot take only word, not sentence.
 Telegram: @SakhaDictBot
 
 ## Launching
