@@ -37,7 +37,7 @@ func balancer(upstream <-chan searchSettings) {
 }
 
 func parseHtmlBody(text []byte, chatID int64, done <-chan struct{}) {
-	defer func ()  {
+	defer func() {
 		<-done
 	}()
 	tokenizer := html.NewTokenizer(bytes.NewReader(text))
@@ -159,7 +159,7 @@ func sendMessage(text string, id int64) {
 	}
 }
 
-func iterateAndSend(pack pack) {
+var iterateAndSend = func(pack pack) { // For test purpose
 	if len(pack.wordExplain.texts) > 0 {
 		text := pack.wordExplain.head + "\n"
 		for _, wordBody := range pack.wordExplain.texts {
