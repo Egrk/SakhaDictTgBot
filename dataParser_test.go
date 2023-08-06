@@ -10,32 +10,33 @@ const (
 	bodyTemplate = "1) %sΘ %s"
 )
 
-func TestParseHtmlBody(t *testing.T) {
-	testCases := [][]string{
-		/*
-		{
-			Head, 
-			First test sentece, 
-			Second test sentence, 
-			Want first sentence, 
-			Want second sentence
-		}
-		*/
-		{
-			"Заголовок", 
-			"Первый тестовый текст.", 
-			"Второй тестовый текст.", 
-			"Первый тестовый текст.", 
-			"Второй тестовый текст.",
-		},
-		{
-			"Второй заголовок", 
-			"Этого предложения не должно быть. Первое предложение.", 
-			"Второе предложение. Этого не должно быть.", 
-			"Первое предложение.",
-			"Второе предложение.",
-		},
+var testCases = [][]string{
+	/*
+	{
+		Head, 
+		First test sentece, 
+		Second test sentence, 
+		Want first sentence, 
+		Want second sentence
 	}
+	*/
+	{
+		"Заголовок", 
+		"Первый тестовый текст.", 
+		"Второй тестовый текст.", 
+		"Первый тестовый текст.", 
+		"Второй тестовый текст.",
+	},
+	{
+		"Второй заголовок", 
+		"Этого предложения не должно быть. Первое предложение.", 
+		"Второе предложение. Этого не должно быть.", 
+		"Первое предложение.",
+		"Второе предложение.",
+	},
+}
+
+func TestParseHtmlBody(t *testing.T) {
 	var head, text string
 	iterateAndSend = func(pack pack) {
 		head = pack.wordExplain.head
@@ -62,6 +63,26 @@ func TestParseHtmlBody(t *testing.T) {
 		if text != body {
 			t.Errorf("wrong text (%s) got, want %s",
 			text, body)
+		}
+	}
+}
+
+func BenchmarkParseHtmlBody(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		iterateAndSend = func(pack pack) {
+			_ = pack.wordExplain.head
+			_ = pack.wordExplain.texts[0]
+		}
+		mockChan := make(chan struct{}, 1)
+		for _, value := range testCases {
+			testCase := fmt.Sprintf(testDataTemplate, value[0], value[1], value[2])
+			byteTestCase := []byte(testCase)
+			packet := pack{
+				rawBytes: &byteTestCase,
+				chatID: 1234,
+			}
+			mockChan <- struct{}{}
+			parseHtmlBody(packet, mockChan)
 		}
 	}
 }
