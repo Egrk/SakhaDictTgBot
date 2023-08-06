@@ -15,6 +15,7 @@ type pack struct {
 	wordExplain word
 	chatID int64
 	number int
+	rawBytes *[]byte
 }
 
 type word struct {
@@ -23,31 +24,23 @@ type word struct {
 	rawData string
 }
 
-type searchSettings struct {
-	raw []byte
-	chatID int64
-}
-
-func balancer(upstream <-chan searchSettings) {
+func balancer(upstream <-chan pack) {
 	var semafore = make(chan struct{}, 15)
 	for elem := range upstream {
 		semafore <-struct{}{}
-		go parseHtmlBody(elem.raw, elem.chatID, semafore)
+		go parseHtmlBody(elem, semafore)
 	}
 }
 
-func parseHtmlBody(text []byte, chatID int64, done <-chan struct{}) {
+func parseHtmlBody(packet pack, done <-chan struct{}) {
 	defer func() {
 		<-done
 	}()
-	tokenizer := html.NewTokenizer(bytes.NewReader(text))
+	tokenizer := html.NewTokenizer(bytes.NewReader(*packet.rawBytes))
 	wordStruct := word{}
 	var rawData []string
 	callback := make(chan pack)
 	num := 0
-	packet := pack{
-		chatID: chatID,
-	}
 	for {
 		tokenType := tokenizer.Next()
 		if tokenType == html.ErrorToken {
