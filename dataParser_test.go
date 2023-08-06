@@ -44,8 +44,13 @@ func TestParseHtmlBody(t *testing.T) {
 	mockChan := make(chan struct{}, 1)
 	for _, value := range testCases {
 		testCase := fmt.Sprintf(testDataTemplate, value[0], value[1], value[2])
+		byteTestCase := []byte(testCase)
+		packet := pack{
+			rawBytes: &byteTestCase,
+			chatID: 1234,
+		}
 		mockChan <- struct{}{}
-		parseHtmlBody([]byte(testCase), 1234, mockChan)
+		parseHtmlBody(packet, mockChan)
 		if head == "" && text == "" {
 			t.Fatalf("function iterateAndSend not called")
 		}
