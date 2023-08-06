@@ -73,7 +73,7 @@ func main() {
 
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
-	var downstream = make(chan searchSettings, 20)
+	var downstream = make(chan pack, 20)
 	go balancer(downstream)
 	for update := range updates {
 		if update.Message == nil {
@@ -123,14 +123,15 @@ func main() {
 			sendMessage("Слово не найдено", update.Message.Chat.ID)
 			continue
 		}
+		payload := body[11477:]
 		if fullTextMdFile {
-			sendHtmlChunkWithText(body[11477:], searchWord, update.Message.Chat.ID)
+			sendHtmlChunkWithText(payload, searchWord, update.Message.Chat.ID)
 		} else {
-			searchSettings := searchSettings{
-				raw: body[11477:],
+			packet := pack{
+				rawBytes: &payload,
 				chatID: update.Message.Chat.ID,
 			}
-			downstream <- searchSettings
+			downstream <- packet
 		}
 	}
 }
