@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -70,19 +71,19 @@ func TestParseHtmlBody(t *testing.T) {
 func BenchmarkParseHtmlBody(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		iterateAndSend = func(pack pack) {
-			_ = pack.wordExplain.head
-			_ = pack.wordExplain.texts[0]
+
 		}
 		mockChan := make(chan struct{}, 1)
-		for _, value := range testCases {
-			testCase := fmt.Sprintf(testDataTemplate, value[0], value[1], value[2])
-			byteTestCase := []byte(testCase)
-			packet := pack{
-				rawBytes: &byteTestCase,
-				chatID: 1234,
-			}
-			mockChan <- struct{}{}
-			parseHtmlBody(packet, mockChan)
+		data, err := os.ReadFile("./TestBenchData/BenchData.htm")
+		if err != nil {
+			b.Fatal("Error on read file")
 		}
+		byteTestCase := data[11477:]
+		packet := pack{
+			rawBytes: &byteTestCase,
+			chatID: 1234,
+		}
+		mockChan <- struct{}{}
+		parseHtmlBody(packet, mockChan)
 	}
 }
