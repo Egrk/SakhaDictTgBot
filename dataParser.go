@@ -94,7 +94,7 @@ func parseHtmlBody(packet pack, done <-chan struct{}) {
 
 func sentenceParser(pack pack, callback chan pack) {
 	runeList := []rune(pack.wordExplain.rawData)
-	var lastSentence []string
+	var lastSentence strings.Builder
 	isSentenceEnd := false
 	lenOfList := len(runeList)
 	var text []string
@@ -104,7 +104,7 @@ func sentenceParser(pack pack, callback chan pack) {
 		if runeList[indx] == 'Θ' {
 			indxStep, nextSentence := nextSentenceParse(runeList[indx+1:])
 			indx += indxStep
-			firstSentence := strings.Join(lastSentence, "")
+			firstSentence := lastSentence.String()
 			text = append(text, strconv.Itoa(number)+") "+firstSentence+"Θ "+nextSentence)
 			number++
 		}
@@ -114,10 +114,10 @@ func sentenceParser(pack pack, callback chan pack) {
 					isSentenceEnd = false
 				}
 			}
-			lastSentence = append(lastSentence, string(runeList[indx]))
+			lastSentence.WriteRune(runeList[indx])
 		} else if unicode.IsUpper(runeList[indx]) {
-			lastSentence = nil
-			lastSentence = append(lastSentence, string(runeList[indx]))
+			lastSentence.Reset()
+			lastSentence.WriteRune(runeList[indx])
 			isSentenceEnd = true
 		}
 		indx++
@@ -129,10 +129,10 @@ func sentenceParser(pack pack, callback chan pack) {
 }
 
 func nextSentenceParse(text []rune) (int, string) {
-	var ans []string
+	var ans strings.Builder
 	idx := 0
 	for i := 0; i < len(text); i++ {
-		ans = append(ans, string(text[i]))
+		ans.WriteRune(text[i])
 		if text[i] == '.' {
 			if i+2 < len(text) {
 				if unicode.IsUpper(text[i+2]) || text[i+2] == ' ' {
@@ -142,7 +142,7 @@ func nextSentenceParse(text []rune) (int, string) {
 			}
 		}
 	}
-	return idx, strings.Join(ans, "")
+	return idx, ans.String()
 }
 
 func sendMessage(text string, id int64) {
