@@ -12,13 +12,14 @@ import (
 )
 
 type pack struct {
-	wordExplain word
+	wordTitle string
+	wordExplain Word
 	chatID int64
 	number int
 	rawBytes *[]byte
 }
 
-type word struct {
+type Word struct {
 	head  string
 	texts []string
 	rawData string
@@ -37,7 +38,7 @@ func parseHtmlBody(packet pack, done <-chan struct{}) {
 		<-done
 	}()
 	tokenizer := html.NewTokenizer(bytes.NewReader(*packet.rawBytes))
-	wordStruct := word{}
+	wordStruct := Word{}
 	var rawData []string
 	callback := make(chan pack)
 	num := 0
@@ -76,20 +77,57 @@ func parseHtmlBody(packet pack, done <-chan struct{}) {
 		rawData = nil
 	}
 	packSlice := make([]pack, num)
+	wordModel := cachedWord{}
 	for i := 0; i < num; i++ {
 		if packSlice[i].chatID != 0 {
-			iterateAndSend(packSlice[i])
+			divideToChunks(packSlice[i], &wordModel)
 			continue
 		}
 		for {
 			handledPack := <- callback
 			if handledPack.number == i {
-				iterateAndSend(handledPack)
+				divideToChunks(handledPack, &wordModel)
 				break
 			}
 			packSlice[handledPack.number] = handledPack
 		}
 	}
+	memoryCache.update(packet.wordTitle, wordModel)
+	msg := tgbotapi.NewMessage(packet.chatID, wordModel.textList[0])
+	keyboard, ok := getKeyboard(getWordKeyboardData(packet.wordTitle, &wordModel, 0))
+	if ok {
+		msg.ReplyMarkup = keyboard
+	}
+	if _, err := bot.Send(msg); err != nil {
+		log.Fatal("error happened", err)
+	}
+}
+
+func getWordKeyboardData(key string, wordModel *cachedWord, currentPos int) (string, string, string, string) {
+	leftPage, rightPage := "", ""
+	prevChapter, nextChapter := "", ""
+	if currentPos != 0 {
+		leftPage = key+"."+strconv.Itoa(currentPos - 1)
+	}
+	if len(wordModel.textList) - 1 != currentPos {
+		rightPage = key+"."+strconv.Itoa(currentPos + 1)
+	}
+	if len(wordModel.chaptersNumber) > 1 {
+		for idx, val := range wordModel.chaptersNumber {
+			if val >= currentPos || idx == len(wordModel.chaptersNumber) - 1 {
+				if currentPos == val && idx != 0 {
+					prevChapter = key+"."+strconv.Itoa(wordModel.chaptersNumber[idx-1])
+				} else if currentPos > val {
+					prevChapter = key+"."+strconv.Itoa(val)
+				}
+				if len(wordModel.chaptersNumber) - 1 != idx {
+					nextChapter = key+"."+strconv.Itoa(wordModel.chaptersNumber[idx+1])
+				}
+				break
+			}
+		}
+	}
+	return leftPage, rightPage, prevChapter, nextChapter
 }
 
 func sentenceParser(pack pack, callback chan pack) {
@@ -152,19 +190,20 @@ func sendMessage(text string, id int64) {
 	}
 }
 
-var iterateAndSend = func(pack pack) { // For test purpose
+var divideToChunks = func(pack pack, cacheModel *cachedWord) { // For test purpose
 	if len(pack.wordExplain.texts) > 0 {
 		text := pack.wordExplain.head + "\n"
+		cacheModel.chaptersNumber = append(cacheModel.chaptersNumber, len(cacheModel.textList))
 		for _, wordBody := range pack.wordExplain.texts {
-			if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 4096 { 
+			if utf8.RuneCountInString(text)+utf8.RuneCountInString(wordBody+"\n") < 1024 { 
 				text += wordBody + "\n"
 			} else {
-				sendMessage(text, pack.chatID)
+				cacheModel.textList = append(cacheModel.textList, text)
 				text = ""
 			}
 		}
 		if text != "" {
-			sendMessage(text, pack.chatID)
+			cacheModel.textList = append(cacheModel.textList, text)
 		}
 	}
 }

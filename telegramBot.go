@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/patrickmn/go-cache"
 )
 
 const (
@@ -23,6 +27,70 @@ const (
 )
 
 var bot *tgbotapi.BotAPI
+var memoryCache *allCache
+
+func newCache() *allCache {
+	cache := cache.New(30 * time.Minute, 15 * time.Minute)
+	return &allCache{
+		cachedWords: cache,
+	}
+}
+
+type cachedWord struct {
+	textList []string
+	chaptersNumber []int
+}
+
+type allCache struct {
+	cachedWords *cache.Cache
+}
+
+func (c *allCache) read(id string) (item cachedWord, ok bool) {
+	word, ok := c.cachedWords.Get(id)
+	if ok {
+		log.Println("From cache")
+		return word.(cachedWord), true
+	}
+	return cachedWord{}, false
+}
+
+func (c *allCache) update(id string, word cachedWord) {
+	c.cachedWords.Set(id, word, cache.DefaultExpiration)
+}
+
+func getKeyboard(leftPageData, rightPageData, prevChapterData, nextChapterData string) (tgbotapi.InlineKeyboardMarkup, bool) {
+	var pageLine []tgbotapi.InlineKeyboardButton
+	var chapterLine []tgbotapi.InlineKeyboardButton
+	if leftPageData != "" {
+		pageLine = append(pageLine, tgbotapi.NewInlineKeyboardButtonData("<", leftPageData))
+	}
+	if rightPageData != "" {
+		pageLine = append(pageLine, tgbotapi.NewInlineKeyboardButtonData(">", rightPageData))
+	}
+	if prevChapterData != "" {
+		chapterLine = append(chapterLine, tgbotapi.NewInlineKeyboardButtonData("<=", prevChapterData))
+	}
+	if nextChapterData != "" {
+		chapterLine = append(chapterLine, tgbotapi.NewInlineKeyboardButtonData("=>", nextChapterData))
+	}
+	
+	var keyboardRows [][]tgbotapi.InlineKeyboardButton
+	if len(pageLine) != 0 {
+		keyboardRows = append(keyboardRows, pageLine)
+	}
+	if len(chapterLine) != 0 {
+		keyboardRows = append(keyboardRows, chapterLine)
+	}
+
+	keyboardMarkup := tgbotapi.NewInlineKeyboardMarkup(
+		keyboardRows...
+	)
+	if len(keyboardMarkup.InlineKeyboard) == 0 {
+		return keyboardMarkup, false
+	}
+
+	return keyboardMarkup, true
+}
 
 func main() {
 	localMode := flag.Bool("dev", false, "run in local machine")
@@ -70,68 +138,107 @@ func main() {
 		}
 		updates = bot.ListenForWebhook("/" + bot.Token)
 	}
-
+	memoryCache = newCache()
 	urlAddress, _ := url.Parse(dictURL)
 	log.Println("Configs setted, starting listening")
 	var downstream = make(chan pack, 20)
 	go balancer(downstream)
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-		fullTextMdFile := false
-		log.Println("User: ", update.Message.Chat.FirstName, update.Message.Chat.LastName, "UserName: ", update.Message.Chat.UserName)
-		if update.Message.IsCommand() {
-			log.Println("Send command: ", update.Message.Command())
-			switch update.Message.Command() {
-			case "help":
-				sendMessage(helpMessage, update.Message.Chat.ID)
-				continue
-			case "start":
-				sendMessage(startMessage, update.Message.Chat.ID)
-				continue
-			default:
-				sendMessage(defaultMessage, update.Message.Chat.ID)
+		if update.Message != nil {
+			fullTextMdFile := false
+			log.Println("User: ", update.Message.Chat.FirstName, update.Message.Chat.LastName, "UserName: ", update.Message.Chat.UserName)
+			if update.Message.IsCommand() {
+				log.Println("Send command: ", update.Message.Command())
+				switch update.Message.Command() {
+				case "help":
+					sendMessage(helpMessage, update.Message.Chat.ID)
+					continue
+				case "start":
+					sendMessage(startMessage, update.Message.Chat.ID)
+					continue
+				default:
+					sendMessage(defaultMessage, update.Message.Chat.ID)
+					continue
+				}
+			}
+			searchWord := update.Message.Text
+			log.Println("Searching for word: ", searchWord)
+			if searchWord[0] == '+' {
+				fullTextMdFile = true
+				searchWord = strings.TrimSpace(searchWord[1:])
+			}
+			if !fullTextMdFile {
+				cachedData, ok := memoryCache.read(searchWord)
+				if ok {
+					log.Println("Found in cache")
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, cachedData.textList[0])
+					keyboard, ok := getKeyboard(getWordKeyboardData(searchWord, &cachedData, 0))
+					if ok {
+						msg.ReplyMarkup = keyboard
+					}
+					if _, err := bot.Send(msg); err != nil {
+						log.Fatal("error happened ", err)
+					}
+					continue
+				}
+			}
+			query := urlAddress.Query()
+			query.Set("data1", searchWord)
+			urlAddress.RawQuery = query.Encode()
+			resp, err := http.Get(fmt.Sprint(urlAddress, searchWord))
+			if err != nil {
+				log.Fatal("error happened ", err)
 				continue
 			}
-		}
-		searchWord := update.Message.Text
-		log.Println("Searching for word: ", searchWord)
-		if searchWord[0] == '+' {
-			fullTextMdFile = true
-			searchWord = strings.TrimSpace(searchWord[1:])
-		}
-		query := urlAddress.Query()
-		query.Set("data1", searchWord)
-		urlAddress.RawQuery = query.Encode()
-		resp, err := http.Get(fmt.Sprint(urlAddress, searchWord))
-		if err != nil {
-			log.Fatal("error happened ", err)
-			continue
-		}
-		if resp.StatusCode != 200 {
-			log.Println("Server error, status code: ", resp.StatusCode)
-			sendMessage(serverErrorMessage, update.Message.Chat.ID)
-			continue
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatal("error happened ", err)
-		}
-		resp.Body.Close()
-		if len(body) < 14000 {
-			sendMessage("Слово не найдено", update.Message.Chat.ID)
-			continue
-		}
-		payload := body[11477:]
-		if fullTextMdFile {
-			sendHtmlChunkWithText(payload, searchWord, update.Message.Chat.ID)
-		} else {
-			packet := pack{
-				rawBytes: &payload,
-				chatID: update.Message.Chat.ID,
+			if resp.StatusCode != 200 {
+				log.Println("Server error, status code: ", resp.StatusCode)
+				sendMessage(serverErrorMessage, update.Message.Chat.ID)
+				continue
 			}
-			downstream <- packet
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Fatal("error happened ", err)
+			}
+			resp.Body.Close()
+			if len(body) < 14000 {
+				sendMessage("Слово не найдено", update.Message.Chat.ID)
+				continue
+			}
+			payload := body[11477:]
+			if fullTextMdFile {
+				sendHtmlChunkWithText(payload, searchWord, update.Message.Chat.ID)
+			} else {
+				packet := pack{
+					rawBytes: &payload,
+					chatID: update.Message.Chat.ID,
+					wordTitle: searchWord,
+				}
+				downstream <- packet
+			}
+		} else if update.CallbackQuery != nil {
+				queryData := strings.Split(update.CallbackQuery.Data, ".")
+				log.Println("Handling callback, word: ", queryData[0])
+				cachedData, ok := memoryCache.read(queryData[0])
+				if !ok {
+					log.Println("No data in cache")
+					continue
+				}
+				pageNum, err := strconv.Atoi(queryData[1])
+				if err != nil {
+					log.Println("Error on string to int convert", err)
+					continue
+				}
+				msg := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, 
+																					 update.CallbackQuery.Message.MessageID, 
+																					 cachedData.textList[pageNum])
+				keyboard, ok := getKeyboard(getWordKeyboardData(queryData[0], &cachedData, pageNum))
+				if ok {
+					msg.ReplyMarkup = &keyboard
+				}
+				if _, err := bot.Send(msg); err != nil {
+					log.Fatal("error happened on sending edited message: ", err)
+				}
+				continue
 		}
 	}
 }
