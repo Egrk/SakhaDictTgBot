@@ -93,14 +93,12 @@ func parseHtmlBody(packet pack, done <-chan struct{}) {
 		}
 	}
 	memoryCache.update(packet.wordTitle, wordModel)
-	msg := tgbotapi.NewMessage(packet.chatID, wordModel.textList[0])
+	message := tgbotapi.NewMessage(packet.chatID, wordModel.textList[0])
 	keyboard, ok := getKeyboard(getWordKeyboardData(packet.wordTitle, &wordModel, 0))
 	if ok {
-		msg.ReplyMarkup = keyboard
+		message.ReplyMarkup = keyboard
 	}
-	if _, err := bot.Send(msg); err != nil {
-		log.Fatal("error happened", err)
-	}
+	sendMessage(message)
 }
 
 func getWordKeyboardData(key string, wordModel *cachedWord, currentPos int) (string, string, string, string) {
@@ -183,14 +181,18 @@ func nextSentenceParse(text []rune) (int, string) {
 	return idx, string(text[:sentenceEndIdx])
 }
 
-func sendMessage(text string, id int64) {
-	msg := tgbotapi.NewMessage(id, text)
-	if _, err := bot.Send(msg); err != nil {
+var sendMessage = func(message tgbotapi.Chattable) { // For test purpose
+	if _, err := bot.Send(message); err != nil {
 		log.Fatal("error happened", err)
 	}
 }
 
-var divideToChunks = func(pack pack, cacheModel *cachedWord) { // For test purpose
+func sendText(text string, id int64) {
+	message := tgbotapi.NewMessage(id, text)
+	sendMessage(message)
+}
+
+func divideToChunks(pack pack, cacheModel *cachedWord) { 
 	if len(pack.wordExplain.texts) > 0 {
 		text := pack.wordExplain.head + "\n"
 		cacheModel.chaptersNumber = append(cacheModel.chaptersNumber, len(cacheModel.textList))
@@ -212,7 +214,7 @@ func sendHtmlChunkWithText(body []byte, searchWord string, id int64) {
 	startIndex := bytes.Index(body, []byte(htmlStartElement))
 	endIndex := bytes.LastIndex(body, []byte(htmlEndElement))
 	if startIndex == -1 || endIndex == -1 {
-		sendMessage("Слово не найдено", id)
+		sendText("Слово не найдено", id)
 		return
 	}
 	bodyChunk := body[startIndex:endIndex]

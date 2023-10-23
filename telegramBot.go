@@ -27,11 +27,11 @@ const (
 )
 
 var bot *tgbotapi.BotAPI
-var memoryCache *allCache
+var memoryCache *memCache
 
-func newCache() *allCache {
+func newCache() *memCache {
 	cache := cache.New(30 * time.Minute, 15 * time.Minute)
-	return &allCache{
+	return &memCache{
 		cachedWords: cache,
 	}
 }
@@ -41,11 +41,11 @@ type cachedWord struct {
 	chaptersNumber []int
 }
 
-type allCache struct {
+type memCache struct {
 	cachedWords *cache.Cache
 }
 
-func (c *allCache) read(id string) (item cachedWord, ok bool) {
+func (c *memCache) read(id string) (item cachedWord, ok bool) {
 	word, ok := c.cachedWords.Get(id)
 	if ok {
 		log.Println("From cache")
@@ -54,7 +54,7 @@ func (c *allCache) read(id string) (item cachedWord, ok bool) {
 	return cachedWord{}, false
 }
 
-func (c *allCache) update(id string, word cachedWord) {
+func (c *memCache) update(id string, word cachedWord) {
 	c.cachedWords.Set(id, word, cache.DefaultExpiration)
 }
 
@@ -151,13 +151,13 @@ func main() {
 				log.Println("Send command: ", update.Message.Command())
 				switch update.Message.Command() {
 				case "help":
-					sendMessage(helpMessage, update.Message.Chat.ID)
+					sendText(helpMessage, update.Message.Chat.ID)
 					continue
 				case "start":
-					sendMessage(startMessage, update.Message.Chat.ID)
+					sendText(startMessage, update.Message.Chat.ID)
 					continue
 				default:
-					sendMessage(defaultMessage, update.Message.Chat.ID)
+					sendText(defaultMessage, update.Message.Chat.ID)
 					continue
 				}
 			}
@@ -192,7 +192,7 @@ func main() {
 			}
 			if resp.StatusCode != 200 {
 				log.Println("Server error, status code: ", resp.StatusCode)
-				sendMessage(serverErrorMessage, update.Message.Chat.ID)
+				sendText(serverErrorMessage, update.Message.Chat.ID)
 				continue
 			}
 			body, err := io.ReadAll(resp.Body)
@@ -201,7 +201,7 @@ func main() {
 			}
 			resp.Body.Close()
 			if len(body) < 14000 {
-				sendMessage("Слово не найдено", update.Message.Chat.ID)
+				sendText("Слово не найдено", update.Message.Chat.ID)
 				continue
 			}
 			payload := body[11477:]
@@ -228,16 +228,14 @@ func main() {
 					log.Println("Error on string to int convert", err)
 					continue
 				}
-				msg := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, 
+				message := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, 
 																					 update.CallbackQuery.Message.MessageID, 
 																					 cachedData.textList[pageNum])
 				keyboard, ok := getKeyboard(getWordKeyboardData(queryData[0], &cachedData, pageNum))
 				if ok {
-					msg.ReplyMarkup = &keyboard
+					message.ReplyMarkup = &keyboard
 				}
-				if _, err := bot.Send(msg); err != nil {
-					log.Fatal("error happened on sending edited message: ", err)
-				}
+				sendMessage(message)
 				continue
 		}
 	}
