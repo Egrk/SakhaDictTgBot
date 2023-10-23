@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 const (
 	testDataTemplate = `<ol><hr class="hr"><div class="text"><br><li><b>%s</b> (1  том,  436  страница).<p><b><i>аат.</i></b>%s<b>Θ</b>%s</p><br></li></div>`
-	bodyTemplate = "1) %sΘ %s"
+	bodyTemplate = "%s\n1) %sΘ %s\n"
 )
 
 var testCases = [][]string{
@@ -38,11 +39,11 @@ var testCases = [][]string{
 }
 
 func TestParseHtmlBody(t *testing.T) {
-	var head, text string
-	iterateAndSend = func(pack pack) {
-		head = pack.wordExplain.head
-		text = pack.wordExplain.texts[0]
+	var text string
+	sendMessage = func(message tgbotapi.Chattable) {
+		text = message.(tgbotapi.MessageConfig).Text
 	}
+	memoryCache = newCache()
 	mockChan := make(chan struct{}, 1)
 	for _, value := range testCases {
 		testCase := fmt.Sprintf(testDataTemplate, value[0], value[1], value[2])
@@ -53,14 +54,10 @@ func TestParseHtmlBody(t *testing.T) {
 		}
 		mockChan <- struct{}{}
 		parseHtmlBody(packet, mockChan)
-		if head == "" && text == "" {
-			t.Fatalf("function iterateAndSend not called")
+		if text == "" {
+			t.Fatalf("function divideToChunks not called")
 		}
-		if head != value[0] {
-			t.Errorf("wrong head (%s) got, want %s",
-			head, value[0])
-		}
-		body := fmt.Sprintf(bodyTemplate, value[3], value[4])
+		body := fmt.Sprintf(bodyTemplate, value[0], value[3], value[4])
 		if text != body {
 			t.Errorf("wrong text (%s) got, want %s",
 			text, body)
@@ -69,10 +66,10 @@ func TestParseHtmlBody(t *testing.T) {
 }
 
 func BenchmarkParseHtmlBody(b *testing.B) {
+	memoryCache = newCache()
+	sendMessage = func(message tgbotapi.Chattable) {
+	}
 	for i := 0; i < b.N; i++ {
-		iterateAndSend = func(pack pack) {
-
-		}
 		mockChan := make(chan struct{}, 1)
 		data, err := os.ReadFile("./TestBenchData/BenchData.htm")
 		if err != nil {
