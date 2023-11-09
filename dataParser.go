@@ -111,17 +111,19 @@ func getWordKeyboardData(key string, wordModel *cachedWord, currentPos int) (str
 		rightPage = key+"."+strconv.Itoa(currentPos + 1)
 	}
 	if len(wordModel.chaptersNumber) > 1 {
-		for idx, val := range wordModel.chaptersNumber {
-			if val >= currentPos || idx == len(wordModel.chaptersNumber) - 1 {
-				if currentPos == val && idx != 0 {
+		for idx, chapterNumber := range wordModel.chaptersNumber {
+			if currentPos <= chapterNumber {
+				if idx != 0 {
 					prevChapter = key+"."+strconv.Itoa(wordModel.chaptersNumber[idx-1])
-				} else if currentPos > val {
-					prevChapter = key+"."+strconv.Itoa(val)
 				}
-				if len(wordModel.chaptersNumber) - 1 != idx {
+				if currentPos == chapterNumber && idx != len(wordModel.chaptersNumber) - 1 {
 					nextChapter = key+"."+strconv.Itoa(wordModel.chaptersNumber[idx+1])
+				} else if currentPos < chapterNumber {
+					nextChapter = key+"."+strconv.Itoa(chapterNumber)
 				}
 				break
+			} else if idx == len(wordModel.chaptersNumber) - 1 {
+				prevChapter = key+"."+strconv.Itoa(wordModel.chaptersNumber[idx-1])
 			}
 		}
 	}
