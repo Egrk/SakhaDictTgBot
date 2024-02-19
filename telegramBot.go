@@ -97,11 +97,14 @@ func main() {
 	flag.Parse()
 	var updates tgbotapi.UpdatesChannel
 	if *localMode {
-		config, _ := loadConfig(".")
 		var err error
+		config, err := loadConfig(".")
+		if err != nil {
+			log.Fatalf("Error on config load: %s", err)
+		}
 		bot, err = tgbotapi.NewBotAPI(config.ApiKey)
 		if err != nil {
-			log.Panic(err)
+			log.Fatalf("Error on telegram bot setting: %s", err)
 		}
 		log.Printf("Authorized on account %s", bot.Self.UserName)
 		u := tgbotapi.NewUpdate(0)
@@ -113,13 +116,12 @@ func main() {
 		host := os.Getenv("HOST")
 		if apiKey == "" || port == "" || host == "" {
 			log.Fatal("API_KEY, PORT and HOST must be set")
-			return
 		}
 
 		var err error
 		bot, err = tgbotapi.NewBotAPI(apiKey)
 		if err != nil {
-			log.Panic(err)
+			log.Fatalf("Error on telegram bot setting: %s", err)
 		}
 		log.Printf("Authorized on account %s", bot.Self.UserName)
 
@@ -129,18 +131,18 @@ func main() {
 		
 		webhook, err := tgbotapi.NewWebhook(host + bot.Token)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Error on web hook setting: %s", err)
 		}
 
 		_, err = bot.Request(webhook)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Telegram bot respond error: %s", err)
 		}
 		updates = bot.ListenForWebhook("/" + bot.Token)
 	}
 	memoryCache = newCache()
 	urlAddress, _ := url.Parse(dictURL)
-	log.Println("Configs setted, starting listening")
+	log.Println("Configs setted, start listening")
 	var downstream = make(chan pack, 20)
 	go balancer(downstream)
 	for update := range updates {
@@ -225,7 +227,7 @@ func main() {
 				}
 				pageNum, err := strconv.Atoi(queryData[1])
 				if err != nil {
-					log.Println("Error on string to int convert", err)
+					log.Printf("Error on string to int convert: %s", err)
 					continue
 				}
 				message := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, 
