@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -17,27 +16,27 @@ import (
 )
 
 const (
-	dictURL        = "https://igi.ysn.ru/btsja/index.php?data1=&talww=1"
-	helpMessage    = "Всё просто: отправляешь мне слово на якутском языке, я выдаю его значение. Знаки '>' и '<' листают страницы значения слова, знаки '=>' и '<=' переходят по значениям слова. Знаком '+' в начале можно получить html-файл с полным пояснение слова с примерами. Пример запроса: '+Саха'"
-	startMessage   = "Вас приветствует бот Большого толкового словаря якутского языка. Данные берутся из его электронной версии по ссылке: https://igi.ysn.ru/btsja/index.php. Бот некоммерческий и создан только для удобного взаимодействия со словарем. Небольшая инструкция: /help"
-	defaultMessage = "Такой команды не знаю :("
+	dictURL            = "https://igi.ysn.ru/btsja/index.php?data1=&talww=1"
+	helpMessage        = "Всё просто: отправляешь мне слово на якутском языке, я выдаю его значение. Знаки '>' и '<' листают страницы значения слова, знаки '=>' и '<=' переходят по значениям слова. Знаком '+' в начале можно получить html-файл с полным пояснение слова с примерами. Пример запроса: '+Саха'"
+	startMessage       = "Вас приветствует бот Большого толкового словаря якутского языка. Данные берутся из его электронной версии по ссылке: https://igi.ysn.ru/btsja/index.php. Бот некоммерческий и создан только для удобного взаимодействия со словарем. Небольшая инструкция: /help"
+	defaultMessage     = "Такой команды не знаю :("
 	serverErrorMessage = "Ошибка сервера, попробуйте попытку позже"
-	htmlStartElement = "<div class = 'text'>"
-	htmlEndElement = "</div>"
+	htmlStartElement   = "<div class = 'text'>"
+	htmlEndElement     = "</div>"
 )
 
 var bot *tgbotapi.BotAPI
 var memoryCache *memCache
 
 func newCache() *memCache {
-	cache := cache.New(30 * time.Minute, 15 * time.Minute)
+	cache := cache.New(30*time.Minute, 15*time.Minute)
 	return &memCache{
 		cachedWords: cache,
 	}
 }
 
 type cachedWord struct {
-	textList []string
+	textList       []string
 	chaptersNumber []int
 }
 
@@ -73,7 +72,7 @@ func getKeyboard(leftPageData, rightPageData, prevChapterData, nextChapterData s
 	if nextChapterData != "" {
 		chapterLine = append(chapterLine, tgbotapi.NewInlineKeyboardButtonData("=>", nextChapterData))
 	}
-	
+
 	var keyboardRows [][]tgbotapi.InlineKeyboardButton
 	if len(pageLine) != 0 {
 		keyboardRows = append(keyboardRows, pageLine)
@@ -83,7 +82,7 @@ func getKeyboard(leftPageData, rightPageData, prevChapterData, nextChapterData s
 	}
 
 	keyboardMarkup := tgbotapi.NewInlineKeyboardMarkup(
-		keyboardRows...
+		keyboardRows...,
 	)
 	if len(keyboardMarkup.InlineKeyboard) == 0 {
 		return keyboardMarkup, false
@@ -128,7 +127,7 @@ func main() {
 		addr := "0.0.0.0:" + port
 		go http.ListenAndServe(addr, nil)
 		log.Println("Listenning on port: " + port)
-		
+
 		webhook, err := tgbotapi.NewWebhook(host + bot.Token)
 		if err != nil {
 			log.Fatalf("Error on web hook setting: %s", err)
@@ -187,7 +186,7 @@ func main() {
 			query := urlAddress.Query()
 			query.Set("data1", searchWord)
 			urlAddress.RawQuery = query.Encode()
-			resp, err := http.Get(fmt.Sprint(urlAddress, searchWord))
+			resp, err := http.Get(urlAddress.String())
 			if err != nil {
 				log.Fatal("error happened ", err)
 				continue
@@ -211,34 +210,34 @@ func main() {
 				sendHtmlChunkWithText(payload, searchWord, update.Message.Chat.ID)
 			} else {
 				packet := pack{
-					rawBytes: &payload,
-					chatID: update.Message.Chat.ID,
+					rawBytes:  &payload,
+					chatID:    update.Message.Chat.ID,
 					wordTitle: searchWord,
 				}
 				downstream <- packet
 			}
 		} else if update.CallbackQuery != nil {
-				queryData := strings.Split(update.CallbackQuery.Data, ".")
-				log.Println("Handling callback, word: ", queryData[0])
-				cachedData, ok := memoryCache.read(queryData[0])
-				if !ok {
-					log.Println("No data in cache")
-					continue
-				}
-				pageNum, err := strconv.Atoi(queryData[1])
-				if err != nil {
-					log.Printf("Error on string to int convert: %s", err)
-					continue
-				}
-				message := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, 
-																					 update.CallbackQuery.Message.MessageID, 
-																					 cachedData.textList[pageNum])
-				keyboard, ok := getKeyboard(getWordKeyboardData(queryData[0], &cachedData, pageNum))
-				if ok {
-					message.ReplyMarkup = &keyboard
-				}
-				sendMessage(message)
+			queryData := strings.Split(update.CallbackQuery.Data, ".")
+			log.Println("Handling callback, word: ", queryData[0])
+			cachedData, ok := memoryCache.read(queryData[0])
+			if !ok {
+				log.Println("No data in cache")
 				continue
+			}
+			pageNum, err := strconv.Atoi(queryData[1])
+			if err != nil {
+				log.Printf("Error on string to int convert: %s", err)
+				continue
+			}
+			message := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID,
+				update.CallbackQuery.Message.MessageID,
+				cachedData.textList[pageNum])
+			keyboard, ok := getKeyboard(getWordKeyboardData(queryData[0], &cachedData, pageNum))
+			if ok {
+				message.ReplyMarkup = &keyboard
+			}
+			sendMessage(message)
+			continue
 		}
 	}
 }
