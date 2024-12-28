@@ -144,12 +144,12 @@ func sentenceParser(pack pack, callback chan pack) {
 			indxStep, nextSentence := nextSentenceParse(runeList[indx+1:])
 			indx += indxStep
 			firstSentence := runeList[sentenceStartIdx:sentenceEndIdx]
-			text = append(text, strconv.Itoa(number)+") "+string(firstSentence)+"Θ "+nextSentence)
+			text = append(text, strconv.Itoa(number)+") "+string(firstSentence)+"Θ "+nextSentence+";")
 			number++
 		}
 		if isSentenceEnd {
 			if indx+2 < lenOfList {
-				if runeList[indx] == '.' && (unicode.IsUpper(runeList[indx+2]) || runeList[indx+2] == ' ') {
+				if runeList[indx] == '.' && (unicode.IsUpper(runeList[indx+2]) || runeList[indx+2] == ' ' || runeList[indx+2] == '(' || runeList[indx+2] == '[') {
 					isSentenceEnd = false
 				}
 			} 
@@ -172,7 +172,7 @@ func nextSentenceParse(text []rune) (int, string) {
 	for i := 0; i < len(text); i++ {
 		if text[i] == '.' {
 			if i+2 < len(text) {
-				if unicode.IsUpper(text[i+2]) || text[i+2] == ' ' {
+				if unicode.IsUpper(text[i+2]) || text[i+2] == ' ' || text[i+2] == '(' || text[i+2] == '[' {
 					sentenceEndIdx = i
 					break
 				}
